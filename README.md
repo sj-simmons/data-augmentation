@@ -796,7 +796,7 @@ feat_transform = torchvision.transforms.Compose([
 # (online) compute the means and stdevs
 traindata = TrainData(imagedir, train_df, feat_transform)
 trainloader = DataLoader(dataset=traindata, batch_size=100)
-feats_means, feats_stdevs = dulib.online_means_stdevs(trainloader)
+(feats_means, feats_stdevs), = dulib.online_means_stdevs(trainloader)
 
 # add standardization to features transform and create a transform for targets
 feat_transform = torchvision.transforms.Compose([
@@ -947,7 +947,7 @@ import du.utils, du.conv.models
 
 # set up command-line switches
 parser = du.utils.standard_args(
-    'Convolutional model.', epochs=20, lr=0.01, mo=0.94, bs=32,
+    'Convolutional model for 20x20 digits.', epochs=20, lr=0.01, mo=0.94, bs=32,
     props=(0.7,0.15,0.15), channels=(1,24), widths = (10,), gpu=(-1,),
     graph=0, verb=3, cm=False)
 parser.add_argument('-colorize',help='toggle colorizing',action='store_false')
@@ -999,7 +999,7 @@ feat_transform= t.Compose([t.ToTensor(), t.Lambda(lambda xs: xs.squeeze(0))])
 # (online) compute the means and stdevs of the training data
 traindata = Data(train_df, feat_transform)
 trainloader = DataLoader(dataset=traindata, batch_size=100)
-feats_means, feats_stdevs = dulib.online_means_stdevs(trainloader)
+(feats_means, feats_stdevs), = dulib.online_means_stdevs(trainloader)
 
 # add standardization to the features transform and re-instance traindata using
 # targs_transform so we output (feature, target) pairs
