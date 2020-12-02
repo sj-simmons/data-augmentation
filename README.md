@@ -968,10 +968,10 @@ df = pd.read_csv(imagedir+csvfile)
 
 # split out training, validation, and testing dataframes
 if len(args.props) == 1:
-    train_df = du.utils.split_df(df, args.props)
+    train_df = dulib.split_df(df, args.props)
     logstring += f'Training {len(train_df)} examples' + '\n'
 else:
-    train_df, valid_df, test_df = du.utils.split_df(df, args.props)
+    train_df, valid_df, test_df = dulib.split_df(df, args.props)
     logstring += 'Training/validating/testing on {}/{}/{} examples'.format(
         len(train_df), len(valid_df), len(test_df)) +  '\n'
 
