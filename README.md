@@ -13,7 +13,9 @@
 * [Data augmentation and transforms](#augmentation_)
   * [Exercise 2](#exercise2_)
 * [Training/validating/testing with DataLoaders](#usingdataloaders_)
+* [Cross-validating with DataLoaders](#crossvalidating_)
 * [Resources](#resources_)
+
 
 # Prologue
 
@@ -917,9 +919,63 @@ during training. Often, our data consists so many large examples that even our *
 and *validation* sets will not fit in VRAM &mdash; for instance, validating  while training
 can be a problem.
 
-In this section we rewrite our last program above using our custom subclass of
-**Dataset** in such a way that each of the training, validation, and test sets
-can be larger than GPU (or even CPU) memory allows.
+We now rewrite our last program above in such a way that each of the training,
+validation, and test sets can be larger than GPU (or even CPU) memory allows.
+
+In **program3.py** (below) we use a variation of the custom subclass of
+**Dataset** that we constructed above:
+```
+class Data(torch.utils.data.Dataset):
+    """Base class for data sets.
+
+    """
+    def __init__(self, df, maps, *transforms):
+        assert len(transforms) <= len(maps)
+        self.df = df
+        self.mps = maps
+        self.tfs = transforms
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        return tuple(tf(mp(self.df,idx)) for tf, mp in zip(self.tfs, self.mps) if tf is not None)
+```
+The class **Data** is similar to the class **TrainData** in **program2.py** (above), except for the 
+parameter **maps**.
+
+In a previous section, we created cvs file  called **images.csv** that indexes the 20x20 images; it lives
+in the directory **~/data/20by20digits/** and starts like this:
+``` shell
+filename   label
+image0000  0
+image0001  0
+image0002  0
+image0003  0
+image0004  0
+image0005  0
+image0006  0
+image0007  0
+image0008  0
+image0009  0
+image0010  0
+image0011  0
+```
+
+After reading the csv file into a instance of Pandas' Dataframe class, we need to
+encode how to get images and labels into an instance of the `Data` class. Notice
+that the lambda functions in the tuple **maps** define precisely those encodings.
+``` python
+directory = str(pathlib.Path.home()/'data/20by20digits')+'/'
+df = pandas.read_csv(directory+'images.csv')
+
+maps = (
+    lambda df, idx: io.imread(imagedir+df.iloc[idx, 0]+'.png'), # returns a PIL image
+    lambda df, idx: df.iloc[idx, 1]  # returns an int
+)
+```
+Have a look at **program3.py** as an example of using **maps** in conjunction with the
+**Data** class.
 
 Notes
 * We use the 20x20 images &mdash; again, only for demonstration purposes as those
@@ -935,7 +991,7 @@ Notes
 
 ```python
 # program3.py
-import time
+import datetime
 from skimage import io
 import pandas as pd
 import pathlib, torch
@@ -948,56 +1004,41 @@ import du.utils, du.conv.models
 # set up command-line switches
 parser = du.utils.standard_args(
     'Convolutional model for 20x20 digits.', epochs=20, lr=0.01, mo=0.94, bs=32,
-    props=(0.7,0.15,0.15), channels=(1,24), widths = (10,), gpu=(-1,),
-    graph=0, verb=3, cm=False)
+    props=(0.7,0.15,0.15), channels=(1,24), widths = (10,), gpu=(-1,), graph=0, verb=3,
+    cm=False)
 parser.add_argument('-colorize',help='toggle colorizing',action='store_false')
 args = parser.parse_args()
 
-# In case we are running this on the jobs queue, use a logstring
-logstring = ''
-
-# log info on some of the learning hyper-parameters, etc.
-logstring += du.utils.args2string(
+# log info on selected learning hyper-parameters, etc.
+logstring = du.utils.args2string(
     args, ['epochs','bs','lr','mo','gpu'],
-    timestamp = True if args.verb < 3 else False, color=args.colorize) + '\n'
+    timestamp = True if args.verb < 1 else False, color=args.colorize) + '\n'
+
+start = datetime.datetime.now()
 
 # get all of the image data in the form of a pandas dataframe
 imagedir = str(pathlib.Path.home()/'data/20by20digits')+'/'
 csvfile = 'images.csv'
 df = pd.read_csv(imagedir+csvfile)
 
+# how to extract the data from df when creating datasets for dataloaders
+maps = (lambda df, idx: io.imread(imagedir+df.iloc[idx, 0]+'.png'), # returns a PIL image
+        lambda df, idx: df.iloc[idx, 1])  # returns an int
+
 # split out training, validation, and testing dataframes
 if len(args.props) == 1:
     train_df = dulib.split_df(df, args.props)
-    logstring += f'Training {len(train_df)} examples' + '\n'
+    logstring += f'Training {len(train_df)} examples\n'
 else:
     train_df, valid_df, test_df = dulib.split_df(df, args.props)
-    logstring += 'Training/validating/testing on {}/{}/{} examples'.format(
-        len(train_df), len(valid_df), len(test_df)) +  '\n'
-
-# subclass Dataset
-class Data(Dataset):
-    def __init__(self, dataframe, *transforms):
-        self.frame = dataframe
-        self.dir = imagedir
-        self.transforms = transforms
-
-    def __len__(self):
-        return len(self.frame)
-
-    def __getitem__(self, idx):
-        imagefile = self.dir + self.frame.iloc[idx, 0] + '.png'
-        imagelabel = self.frame.iloc[idx, 1]
-        return tuple(
-            tform(xs) for tform, xs in zip(self.transforms,
-                                           (io.imread(imagefile), imagelabel)
-                                       ) if tform is not None)
+    logstring += ('Training/validating/testing on '
+                  f'{len(train_df)}/{len(valid_df)}/{len(test_df)} examples\n')
 
 # we first use this to compute the means and stdevs of training data features
 feat_transform= t.Compose([t.ToTensor(), t.Lambda(lambda xs: xs.squeeze(0))])
 
 # (online) compute the means and stdevs of the training data
-traindata = Data(train_df, feat_transform)
+traindata = dulib.Data(train_df, maps, feat_transform)
 trainloader = DataLoader(dataset=traindata, batch_size=100)
 (feats_means, feats_stdevs), = dulib.online_means_stdevs(trainloader)
 
@@ -1005,22 +1046,20 @@ trainloader = DataLoader(dataset=traindata, batch_size=100)
 # targs_transform so we output (feature, target) pairs
 feat_transform = t.Compose([
     feat_transform,
-    t.Lambda(lambda xs: dulib.standardize(xs, means=feats_means,
-                                          stdevs=feats_stdevs))])
+    t.Lambda(lambda xs: dulib.standardize(xs, means=feats_means, stdevs=feats_stdevs))])
 targ_transform = t.Lambda(lambda xs: torch.tensor(xs))
-traindata = Data(train_df, feat_transform, targ_transform)
+traindata = dulib.Data(train_df, maps, feat_transform, targ_transform)
 # we must also re-instance trainloader
-trainloader = DataLoader(
-    dataset=traindata, batch_size=args.bs, num_workers=2,
-    shuffle=True, pin_memory=True)
+trainloader = DataLoader(dataset=traindata, batch_size=args.bs, num_workers=2,
+                         shuffle=True, pin_memory=True)
 
 if len(args.props) > 1:
     # create loaders for validation and testing
     validloader = DataLoader(
-        Data(valid_df, feat_transform, targ_transform),
+        dulib.Data(valid_df, maps, feat_transform, targ_transform),
         batch_size=100, num_workers=2, pin_memory=True)
     testloader = DataLoader(
-        Data(test_df, feat_transform, targ_transform),
+        dulib.Data(test_df, maps, feat_transform, targ_transform),
         batch_size=100, num_workers=2, pin_memory=True)
 
 # create a convolutional model
@@ -1031,8 +1070,9 @@ try:
         channels = args.channels,
         widths = args.widths)
 except Exception as e:
-    logstring += "Couldn't instantiate a model with " \
-        + f'channels: {args.channels}, widths: {args.widths}'
+    logstring += dulib._markup(
+        "Couldn't instantiate a model with "
+        f'channels: `{args.channels},` widths: `{args.widths}`')
     print(logstring)
     print(e)
     exit()
@@ -1054,14 +1094,14 @@ try:
         args = args)
 except Exception as e:
     if args.verb < 3:
-       print(logstring, end='')
+        print(logstring, end='')
     print('Problem training the model:')
     print(e)
     exit()
 
 # evaluate on train data
-str_ = 'Accuracy: ~training data~ '
-str_ += f'`{100*dulib.class_accuracy(model, trainloader):.2f}%` correct; '
+train_accuracy = dulib.class_accuracy(model, trainloader)
+str_ = f'Accuracy: ~training data~ `{100*train_accuracy:.2f}%` correct; '
 
 # evaluate on test data
 if len(args.props) > 1:
@@ -1069,12 +1109,26 @@ if len(args.props) > 1:
     str_ += f'~test data~ `{100*test_accuracy:.2f}`%.'
 
 str_ = du.utils._markup(str_, strip = not args.colorize)
+if args.verb < 1:
+    time = (datetime.datetime.now() - start).total_seconds()
+    str_ += f'\n{time/60:.2f} mins\n'
 print(str_ if args.verb > 2 else logstring+str_)
+
 if args.cm:
     dulib.class_accuracy(model,testloader,show_cm=True,color=args.colorize)
-if args.verb < 3:
-    print(time.ctime()+'\n')
 ```
+
+<a id="crossvalidating_"></a>
+####
+
+# Cross-validating with DataLoaders
+
+DUlib provides machinery to cross-validate models on data that has been augmented
+using dataloaders.  That is *not* to say that, on the digit classification problem,
+on should cross-validate.  In fact, regularization by means of dropout is higher
+priority; still, here is a good place to demonstrate cross-validation.
+
+
 
 <a id="resources_"></a>
 ####
