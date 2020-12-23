@@ -303,9 +303,10 @@ from du.conv.models import ConvFFNet
 
 # process command-line arguments
 parser = du.utils.standard_args(
-    desc='Train and test a model on MNIST data', lr=0.001, mo=0.92, bs=20,
-    epochs=12, props=(5/6,), channels=(1,16), widths=(10,))
-parser.add_argument('-resize',help='step on the data',type=float,default=.1)
+    desc='Train and test a model on MNIST data', lr=0.01, mo=0.92, bs=20,
+    epochs=12, props=(5/6,), channels=(1,16), widths=(50,))
+parser.add_argument(
+    '-resize',help='only use this proportion of the data',type=float,default=1)
 args = parser.parse_args()
 
 # get the mnist data
@@ -391,52 +392,50 @@ for epoch in range(args.epochs):
 
         # adjust the weights
         for z_param, param in zip(z_parameters, model.parameters()):
-            z_param = args.mo * z_param + param.grad.data
+            z_param = z_param.mul_(args.mo).add_(param.grad.data)
             param.data.sub_(z_param * args.lr)
     print(f'epoch: {epoch+1}, loss: {accum_loss*args.bs/len(train_feats)}')
 
-training_accuracy = 100*dulib.class_accuracy(model,(train_feats,train_targs))
+training_accuracy = 100*dulib.class_accuracy(model,(train_feats,train_targs), gpu=-2)
 print(f'Accuracy: {training_accuracy:.2f}% correct on training data;', end=' ')
 
 if args.props[0] < 1:
-    test_accuracy = 100*dulib.class_accuracy(model,(test_feats,test_targs))
+    test_accuracy = 100*dulib.class_accuracy(model, (test_feats,test_targs), gpu=-2)
     print(f'on test data, {test_accuracy:.2f}% correct.')
 ```
 With the default values for the switches (run the code above with the **-h** switch
 to see other options) the output is:
 ```shell
-training on 5000 of 6000 examples
-epoch: 1, loss: 1.1695459526777268
-epoch: 2, loss: 0.41565694713592527
-epoch: 3, loss: 0.2933421110659838
-epoch: 4, loss: 0.22951760046184064
-epoch: 5, loss: 0.1860628728866577
-epoch: 6, loss: 0.1538740832991898
-epoch: 7, loss: 0.13374821071885526
-epoch: 8, loss: 0.11240356637910008
-epoch: 9, loss: 0.09491550475172698
-epoch: 10, loss: 0.08287064430117608
-epoch: 11, loss: 0.06956178618129343
-epoch: 12, loss: 0.058856538637541235
-99.08% correct on training data
-On test data: 95.70% correct.
+training on 50000 of 60000 examples
+epoch: 1, loss: 0.1973624460494262
+epoch: 2, loss: 0.08987493771620647
+epoch: 3, loss: 0.06629574877388077
+epoch: 4, loss: 0.054469755767785316
+epoch: 5, loss: 0.044867521209317966
+epoch: 6, loss: 0.036724442985993686
+epoch: 7, loss: 0.0336849378565888
+epoch: 8, loss: 0.029682481853333085
+epoch: 9, loss: 0.02676505745293156
+epoch: 10, loss: 0.027453905886199146
+epoch: 11, loss: 0.0211461949919158
+epoch: 12, loss: 0.018215628703653616
+Accuracy: 99.67% correct on training data; on test data, 98.41% correct.
 ```
-By default, the program trains and tests on only 10% of the MNIST data (run it with
-the switch **-resize 1.0** to use all of the data).
 Here is the model that is being trained:
 ``` python
 ConvFFNet(
   (conv): Sequential(
     (0): Sequential(
       (0): Conv2d(1, 16, kernel_size=(5, 5), stride=(1, 1), padding=(2, 2))
-      (1): ReLU()
-      (2): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+      (1): BatchNorm2d(16, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+      (2): ReLU()
+      (3): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
     )
   )
   (dense): Sequential(
-    (0): Linear(in_features=3136, out_features=10, bias=True)
+    (0): Linear(in_features=3136, out_features=50, bias=True)
     (act0): ReLU()
-    (lin1): Linear(in_features=10, out_features=10, bias=True)
+    (lin1): Linear(in_features=50, out_features=10, bias=True)
   )
 )
 ```
@@ -461,9 +460,10 @@ from du.conv.models import ConvFFNet
 
 # process command-line arguments
 parser = du.utils.standard_args(
-    desc='Train and test a model on MNIST data.', lr=0.001, mo=0.92, bs=20,
-    epochs=12, gpu=(-1,), props=(5/6,), channels=(1,16), widths=(10,), graph=0)
-parser.add_argument('-resize',help='step on the data',type=float,default=.1)
+    desc='Train and test a model on MNIST data.', lr=0.01, mo=0.92, bs=20,
+    epochs=12, gpu=(-1,), props=(5/6,), channels=(1,16), widths=(50,), graph=0)
+parser.add_argument(
+    '-resize',help='only use this proportion of the data',type=float,default=1)
 args = parser.parse_args()
 
 # get the mnist data
@@ -759,8 +759,9 @@ import du.utils, du.conv.models
 
 # set up command-line switches
 parser = du.utils.standard_args(
-    'Convolutional model.', epochs=20, lr=0.01, mo=0.94, bs=32, props=(0.8,),
-    channels=(1,24), widths = (10,), gpu=(-1,), graph=0, verb=3, cm=False)
+    'Convolutional model to classify the 20x20 digits.', epochs=20, lr=0.01,
+    mo=0.94, bs=32, props=(0.8,), channels=(1,24), widths = (50,), gpu=(-1,),
+    graph=0, verb=3, cm=False)
 args = parser.parse_args()
 
 # get all of the image data in the form of a pandas dataframe
@@ -924,7 +925,7 @@ validation, and test sets can be larger than GPU (or even CPU) memory allows.
 
 In **program3.py** (below) we use a variation of the custom subclass of
 **Dataset** that we constructed above:
-```
+``` python
 class Data(torch.utils.data.Dataset):
     """Base class for data sets.
 
@@ -946,7 +947,7 @@ parameter **maps**.
 
 In a previous section, we created cvs file  called **images.csv** that indexes the 20x20 images; it lives
 in the directory **~/data/20by20digits/** and starts like this:
-``` shell
+``` console
 filename   label
 image0000  0
 image0001  0
@@ -1004,7 +1005,7 @@ import du.utils, du.conv.models
 # set up command-line switches
 parser = du.utils.standard_args(
     'Convolutional model for 20x20 digits.', epochs=20, lr=0.01, mo=0.94, bs=32,
-    props=(0.7,0.15,0.15), channels=(1,24), widths = (10,), gpu=(-1,), graph=0, verb=3,
+    props=(0.7,0.15,0.15), channels=(1,24), widths = (50,), gpu=(-1,), graph=0, verb=3,
     cm=False)
 parser.add_argument('-colorize',help='toggle colorizing',action='store_false')
 args = parser.parse_args()
@@ -1108,10 +1109,10 @@ if len(args.props) > 1:
     test_accuracy = dulib.class_accuracy(model,testloader,color=args.colorize)
     str_ += f'~test data~ `{100*test_accuracy:.2f}`%.'
 
-str_ = du.utils._markup(str_, strip = not args.colorize)
 if args.verb < 1:
     time = (datetime.datetime.now() - start).total_seconds()
     str_ += f'\n{time/60:.2f} mins\n'
+str_ = du.utils._markup(str_, strip = not args.colorize)
 print(str_ if args.verb > 2 else logstring+str_)
 
 if args.cm:
@@ -1125,10 +1126,133 @@ if args.cm:
 
 DUlib provides machinery to cross-validate models on data that has been augmented
 using dataloaders.  That is *not* to say that, on the digit classification problem,
-on should cross-validate.  In fact, regularization by means of dropout is higher
-priority; still, here is a good place to demonstrate cross-validation.
+one should cross-validate.  In fact, regularization by other means such as dropout
+is higher priority; still, this stage of this tutorial is a good place to demonstrate
+the built-in cross-validation machinery in DUlib:
 
+``` python
+# program4.py
+import datetime
+from skimage import io
+import pandas as pd
+import pathlib, torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+import torchvision.transforms as t
+import du.lib as dulib
+import du.utils, du.conv.models
 
+# set up command-line switches
+parser = du.utils.standard_args(
+    'Convolutional model for 20x20 digits.', epochs=1, lr=0.01, mo=0.94, bs=32,
+    props=(0.98,0.02), channels=(1,24), widths = (50,), gpu=(-1,), graph=0,
+    verb=1, cm=False)
+parser.add_argument('-colorize',help='toggle colorizing',action='store_false')
+parser.add_argument('-k',help='number of folds when cross-validating',type=int,default=98)
+args = parser.parse_args()
+
+# log info on selected learning hyper-parameters, etc.
+logstring = du.utils.args2string(
+    args, ['epochs','bs','lr','mo','gpu'],
+    timestamp = True if args.verb < 1 else False, color=args.colorize) + '\n'
+
+start = datetime.datetime.now()
+
+# get all of the image data in the form of a pandas dataframe
+imagedir = str(pathlib.Path.home()/'data/20by20digits')+'/'
+csvfile = 'images.csv'
+df = pd.read_csv(imagedir+csvfile)
+
+# how to extract the data from df when creating datasets for dataloaders
+maps = (lambda df, idx: io.imread(imagedir+df.iloc[idx, 0]+'.png'), # returns a PIL image
+        lambda df, idx: df.iloc[idx, 1])  # returns an int
+
+# split out training, validation, and testing dataframes
+if len(args.props) == 1:
+    train_df = dulib.split_df(df, args.props)
+    logstring += f'Cross-validate training on {len(train_df)} examples with {args.k} folds\n'
+else:
+    train_df, test_df = dulib.split_df(df, args.props)
+    logstring += (
+        f'Cross-validate training on {len(train_df)} examples with {args.k} folds; '
+        f'final testing on {len(test_df)} examples.\n')
+
+# we first use this to compute the means and stdevs of training data features
+feat_transform= t.Compose([t.ToTensor(), t.Lambda(lambda xs: xs.squeeze(0))])
+
+# (online) compute the means and stdevs of the training data
+traindata = dulib.Data(train_df, maps, feat_transform)
+trainloader = DataLoader(dataset=traindata, batch_size=100)
+(feats_means, feats_stdevs), = dulib.online_means_stdevs(trainloader)
+
+# add standardization to the features transform
+feat_transform = t.Compose([
+    feat_transform,
+    t.Lambda(lambda xs: dulib.standardize(xs, means=feats_means, stdevs=feats_stdevs))])
+
+# instance FoldedData
+targ_transform = t.Lambda(lambda xs: torch.tensor(xs))
+traindata = dulib.FoldedData(
+    df=train_df, maps=maps, transforms = (feat_transform, targ_transform), k=args.k)
+
+if len(args.props) > 1:
+    # create a loader for final testing
+    testloader = DataLoader(
+        dulib.Data(test_df, maps, feat_transform, targ_transform),
+        batch_size=100, num_workers=2, pin_memory=True)
+
+# create a convolutional model
+try:
+    model =  du.conv.models.ConvFFNet(
+        in_size = (20, 20),
+        n_out = 10,
+        channels = args.channels,
+        widths = args.widths)
+except Exception as e:
+    logstring += dulib._markup("Couldn't instantiate a model with "
+                               f'channels: `{args.channels},` widths: `{args.widths}`')
+    print("Problem instantiating the model")
+    print(e)
+    exit()
+
+if args.verb > 0:
+    print(logstring + model.short_repr(color = args.colorize))
+else:
+    logstring += model.short_repr(color = args.colorize) + '\n'
+
+# cross validate train the model
+try:
+    model, _ = dulib.cv_train2(
+        model = model,
+        crit = nn.NLLLoss(),
+        train_data = traindata,
+        bail_after = 10,
+        learn_params = {'lr':args.lr, 'mo':args.mo},
+        bs = args.bs,
+        epochs = args.epochs,
+        num_workers = 2,
+        pin_memory = True,
+        verb = args.verb)
+except Exception as e:
+    if args.verb < 3:
+        print(logstring, end='')
+    print('Problem training the model:')
+    print(e)
+    exit()
+
+# evaluate on test data
+if len(args.props) > 1:
+    test_accuracy = dulib.class_accuracy(model,testloader,color=args.colorize)
+    str_ = f'Accuracy on ~test data~ `{100*test_accuracy:.2f}`%.'
+
+time = (datetime.datetime.now() - start).total_seconds()
+str_ += f'\n{time/60:.2f} mins\n'
+str_ = du.utils._markup(str_, strip = not args.colorize)
+print(str_ if args.verb > 0 else logstring+str_)
+
+if args.cm:
+    dulib.class_accuracy(model,testloader,show_cm=True,color=args.colorize)
+```
 
 <a id="resources_"></a>
 ####
