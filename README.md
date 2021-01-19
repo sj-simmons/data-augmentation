@@ -14,7 +14,7 @@
   * [Exercise 2](#exercise2_)
 * [Training/validating/testing with DataLoaders](#usingdataloaders_)
 * [Cross-validating with DataLoaders](#crossvalidating_)
-* [Resources](#resources_)
+* [Resources and References](#resources_)
 
 
 # Prologue
@@ -1266,3 +1266,8 @@ if args.cm:
   * [memory pinning](https://pytorch.org/docs/stable/notes/cuda.html#cuda-memory-pinning)
   * [DistributedDataParallel](https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html#torch.nn.parallel.DistributedDataParallel)
     * [PyTorch Distributed Overview](https://pytorch.org/tutorials/beginner/dist_overview.html)
+
+# References
+* [A survey on Image Data Augmentation for Deep Learning](https://journalofbigdata.springeropen.com/articles/10.1186/s40537-019-0197-0)
+* [The Effectiveness of Data Augmentation in Image Classification using Deep Learning](https://arxiv.org/abs/1712.04621)
+* [Understanding data augmentation for classification: when to warp?](https://arxiv.org/abs/1609.08764)
